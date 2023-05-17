@@ -6,29 +6,21 @@ import fire
 import torch
 from datasets import load_dataset
 from handler import DataHandler
-from peft import (
-    LoraConfig,
-    get_peft_model,
-    get_peft_model_state_dict,
-    prepare_model_for_int8_training,
-)
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    DataCollatorForSeq2Seq,
-    LlamaForCausalLM,
-    LlamaTokenizer,
-    Trainer,
-    TrainingArguments,
-)
+from peft import LoraConfig, get_peft_model, get_peft_model_state_dict, prepare_model_for_int8_training
+from transformers import AutoModelForCausalLM, AutoTokenizer, DataCollatorForSeq2Seq, LlamaForCausalLM, LlamaTokenizer, Trainer, TrainingArguments
 
 
 def main(
     model: str, # e.g. "decapoda-research/llama-7b-hf"
     val_set_size: Union[int, float] = 0.1,
-    prompt_template: str = "prompts/medalpaca.json",
+    prompt_template: str = "medalpaca/prompt_templates/alpaca.json",
     model_max_length: int = 256,  # should not exceed 2048, as LLaMA is trained with this
     train_on_inputs: bool = True,  # if False, masks out inputs in loss
+    load_from_s3: bool = False,
+    aws_access_key_id: str = None,
+    aws_secret_access_key: str = None,
+    s3_bucket: str = None,
+    s3_filename: str = None,
     data_path: str = "medical_meadow_small.json",
     train_in_8bit: bool = True,
     use_lora: bool = True,
@@ -72,6 +64,16 @@ def main(
         The maximum length for model inputs. Default is 256.
     train_on_inputs (bool, optional):
         Whether to train on input tokens. Default is True.
+    load_from_s3 (bool, optional):
+        Whether to load the dataset from S3. Default is False.
+    aws_access_key_id (str, optional):
+        If s3 and not local. Your AWS access key ID. Default is None.
+    aws_secret_access_key (str, optional):
+        If s3 and not local. Your AWS secret access key. Default is None.
+    s3_bucket (str, optional):
+        If s3 and not local. The S3 bucket name. Default is None.
+    s3_filename (str, optional):
+        If s3 and not local. The S3 filename. Default is None.`
     data_path (str, optional):
         The path to the dataset file. Default is "medical_meadow_small.json".
     train_in_8bit (bool, optional):
@@ -195,6 +197,7 @@ def main(
         tokenizer = LlamaTokenizer.from_pretrained(model_name)
     else:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
+
     tokenizer.pad_token_id = 0
     tokenizer.padding_side = "left"
 
@@ -205,7 +208,23 @@ def main(
         model_max_length=model_max_length,
         train_on_inputs=train_on_inputs,
     )
-    data = load_dataset("json", data_files=data_path)
+
+    if load_from_s3:
+        # Set up S3 file system object with your AWS credentials
+        #os.environ["AWS_ACCESS_KEY_ID"] = aws_access_key_id
+        #os.environ["AWS_SECRET_ACCESS_KEY"] = aws_secret_access_key
+
+        # Your bucket and file path
+        bucket = s3_bucket
+        file = s3_filename
+
+        # Complete S3 file path
+        s3_file = f's3://{s3_bucket}/{s3_filename}'
+
+        data = load_dataset('json', data_files=s3_file)
+    else:
+        data = load_dataset("json", data_files=data_path)
+
 
     if val_set_size > 0:
         data = (
